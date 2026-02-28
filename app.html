@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoDiatom - Ecological Site Mapping & Diatom Analysis</title>
+    
+    <!-- Tailwind CSS for modern, responsive, scientific UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS & JS for Interactive Mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Phosphor Icons for UI Elements -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        eco: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            900: '#14532d',
+                        },
+                        ocean: {
+                            500: '#0ea5e9',
+                            800: '#075985',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom Styles for Map and Transitions */
+        #map {
+            height: 100%;
+            width: 100%;
+            min-height: 400px;
+            border-radius: 0.5rem;
+            z-index: 10;
+        }
+        .view-section {
+            display: none;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        .view-section.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Custom scrollbar for tables */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- Navigation Bar -->
+    <nav class="bg-white border-b border-slate-200 shadow-sm z-20 relative">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <i class="ph-fill ph-drop text-eco-600 text-3xl mr-2"></i>
+                    <span class="font-bold text-xl tracking-tight text-slate-900">Eco<span class="text-eco-600">Diatom</span></span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button onclick="app.navigateTo('dashboard')" class="text-slate-600 hover:text-eco-600 px-3 py-2 rounded-md text-sm font-medium transition-colors">
+                        <i class="ph ph-map-trifold mr-1"></i> Dashboard
+                    </button>
+                    <button onclick="app.navigateTo('admin')" class="bg-eco-600 hover:bg-eco-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors shadow-sm flex items-center">
+                        <i class="ph ph-plus-circle mr-1"></i> Add Site
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto relative custom-scrollbar">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 h-full">
+            
+            <!-- VIEW: DASHBOARD -->
+            <section id="view-dashboard" class="view-section h-full flex flex-col md:flex-row gap-6">
+                <!-- Map Container -->
+                <div class="w-full md:w-2/3 h-[400px] md:h-full bg-white p-2 rounded-xl shadow-sm border border-slate-200 flex flex-col relative">
+                    <div id="map"></div>
+                </div>
+                
+                <!-- Site List Sidebar -->
+                <div class="w-full md:w-1/3 h-full flex flex-col">
+                    <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
+                        <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                            <h2 class="text-lg font-semibold text-slate-800"><i class="ph ph-list-dashes mr-2"></i>Sampling Sites</h2>
+                            <span id="site-count" class="bg-eco-100 text-eco-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">0</span>
+                        </div>
+                        <div id="site-list" class="flex-1 overflow-y-auto p-2 custom-scrollbar">
+                            <!-- Site cards will be injected here by JS -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: SITE DETAIL & ANALYSIS -->
+            <section id="view-site-detail" class="view-section">
+                <button onclick="app.navigateTo('dashboard')" class="mb-4 text-sm text-slate-500 hover:text-eco-600 flex items-center transition-colors">
+                    <i class="ph ph-arrow-left mr-1"></i> Back to Dashboard
+                </button>
+                
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-100 pb-4">
+                        <div>
+                            <h1 id="detail-title" class="text-2xl font-bold text-slate-900">Site Name</h1>
+                            <p class="text-sm text-slate-500 mt-1 flex items-center gap-4">
+                                <span><i class="ph ph-calendar-blank mr-1"></i><span id="detail-date"></span></span>
+                                <span><i class="ph ph-map-pin mr-1"></i><span id="detail-coords"></span></span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Biodiversity Indices Cards -->
+                    <h3 class="text-lg font-semibold mb-4 text-slate-800">Biodiversity Indices</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                        <!-- Shannon -->
+                        <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 relative group cursor-help">
+                            <div class="text-sm text-slate-500 font-medium mb-1">Shannon Diversity (H')</div>
+                            <div id="index-shannon" class="text-2xl font-bold text-ocean-800">0.00</div>
+                            <div class="absolute inset-0 bg-slate-800 text-white text-xs p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden md:block flex items-center justify-center text-center">
+                                Measures species diversity. Higher values indicate higher diversity and uncertainty in predicting the next sampled species.
+                            </div>
+                        </div>
+                        <!-- Evenness -->
+                        <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 relative group cursor-help">
+                            <div class="text-sm text-slate-500 font-medium mb-1">Pielou's Evenness (J')</div>
+                            <div id="index-evenness" class="text-2xl font-bold text-ocean-800">0.00</div>
+                            <div class="absolute inset-0 bg-slate-800 text-white text-xs p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden md:block flex items-center justify-center text-center">
+                                Measures how equal the community is numerically. Constrained between 0 and 1.
+                            </div>
+                        </div>
+                        <!-- Dominance -->
+                        <div class="p-4 rounded-lg border border-slate-200 bg-slate-50 relative group cursor-help">
+                            <div class="text-sm text-slate-500 font-medium mb-1">Simpson Dominance (λ)</div>
+                            <div id="index-dominance" class="text-2xl font-bold text-ocean-800">0.00</div>
+                            <div class="absolute inset-0 bg-slate-800 text-white text-xs p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden md:block flex items-center justify-center text-center">
+                                Probability that two individuals randomly selected belong to the same species. High value = low diversity.
+                            </div>
+                        </div>
+                        <!-- Weighted Average -->
+                        <div class="p-4 rounded-lg border border-slate-200 bg-eco-50 border-eco-200 relative group cursor-help">
+                            <div class="text-sm text-eco-700 font-medium mb-1">Ecological Status (WA)</div>
+                            <div id="index-wa" class="text-2xl font-bold text-eco-900">0.00</div>
+                            <div class="absolute inset-0 bg-eco-900 text-white text-xs p-3 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 hidden md:block flex items-center justify-center text-center">
+                                Abundance-weighted average of species indicator values. Used to assess water quality status.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Species Data Table -->
+                    <h3 class="text-lg font-semibold mb-4 text-slate-800">Community Composition</h3>
+                    <div class="overflow-x-auto rounded-lg border border-slate-200 custom-scrollbar">
+                        <table class="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left font-medium text-slate-500 uppercase tracking-wider">Species Taxon</th>
+                                    <th scope="col" class="px-6 py-3 text-right font-medium text-slate-500 uppercase tracking-wider">Abundance</th>
+                                    <th scope="col" class="px-6 py-3 text-right font-medium text-slate-500 uppercase tracking-wider">Relative Ab. (%)</th>
+                                    <th scope="col" class="px-6 py-3 text-right font-medium text-slate-500 uppercase tracking-wider">Indicator Value (s)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detail-species-list" class="bg-white divide-y divide-slate-200">
+                                <!-- Species rows injected here -->
+                            </tbody>
+                            <tfoot class="bg-slate-50 font-semibold">
+                                <tr>
+                                    <td class="px-6 py-3 text-left text-slate-700">Total / Richness (<span id="detail-richness">0</span>)</td>
+                                    <td id="detail-total-abundance" class="px-6 py-3 text-right text-slate-700">0</td>
+                                    <td class="px-6 py-3 text-right text-slate-700">100%</td>
+                                    <td class="px-6 py-3"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW: ADMIN / ADD SITE -->
+            <section id="view-admin" class="view-section max-w-4xl mx-auto">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div class="bg-slate-800 px-6 py-4">
+                        <h2 class="text-xl font-bold text-white flex items-center"><i class="ph ph-database mr-2"></i> Data Entry Interface</h2>
+                        <p class="text-slate-300 text-sm mt-1">Record a new sampling site and input diatom counts for automated analysis.</p>
+                    </div>
+                    
+                    <form id="add-site-form" class="p-6">
+                        <!-- Site Metadata -->
+                        <h3 class="text-lg font-semibold mb-4 text-slate-800 border-b pb-2">1. Site Information</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Site Name</label>
+                                <input type="text" id="form-name" required class="w-full rounded-md border-slate-300 border p-2 focus:ring-eco-500 focus:border-eco-500 outline-none transition-shadow" placeholder="e.g., Danube River Km 1698">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Sampling Date</label>
+                                <input type="date" id="form-date" required class="w-full rounded-md border-slate-300 border p-2 focus:ring-eco-500 focus:border-eco-500 outline-none transition-shadow">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Latitude (Decimal Degrees)</label>
+                                <input type="number" step="any" id="form-lat" required class="w-full rounded-md border-slate-300 border p-2 focus:ring-eco-500 focus:border-eco-500 outline-none transition-shadow" placeholder="e.g., 47.8166">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 mb-1">Longitude (Decimal Degrees)</label>
+                                <input type="number" step="any" id="form-lng" required class="w-full rounded-md border-slate-300 border p-2 focus:ring-eco-500 focus:border-eco-500 outline-none transition-shadow" placeholder="e.g., 18.8667">
+                            </div>
+                        </div>
+
+                        <!-- Species Data Input -->
+                        <div class="flex justify-between items-end mb-4 border-b pb-2">
+                            <h3 class="text-lg font-semibold text-slate-800">2. Community Data</h3>
+                            <button type="button" onclick="admin.addSpeciesRow()" class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded flex items-center transition-colors">
+                                <i class="ph ph-plus mr-1"></i> Add Taxon Row
+                            </button>
+                        </div>
+                        
+                        <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-8">
+                            <div class="grid grid-cols-12 gap-4 mb-2 px-2 text-xs font-semibold text-slate-500 uppercase">
+                                <div class="col-span-6">Species Name</div>
+                                <div class="col-span-3 text-center">Count / Abundance</div>
+                                <div class="col-span-2 text-center" title="Ecological Indicator Value (e.g., Saprobic or Trophic weight)">Ind. Val (s)</div>
+                                <div class="col-span-1"></div>
+                            </div>
+                            <div id="species-input-container" class="space-y-3">
+                                <!-- Dynamic rows added here -->
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                            <button type="button" onclick="app.navigateTo('dashboard')" class="px-5 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50 transition-colors">Cancel</button>
+                            <button type="submit" class="px-5 py-2 bg-eco-600 text-white rounded-md hover:bg-eco-700 font-medium transition-colors shadow-sm">Save & Calculate Indices</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Application Logic (Vanilla JS) -->
+    <script>
+        /**
+         * EcoDiatom - Core Application Logic
+         * Handles state, routing, math calculations, and map rendering.
+         */
+
+        // --- 1. MOCK DATA & STATE MANAGEMENT ---
+        // In a real app, this might come from Firestore or a REST API.
+        const initialState = [
+            {
+                id: 'site-1',
+                name: 'Danube River - Szob Transect',
+                lat: 47.8166,
+                lng: 18.8667,
+                date: '2023-10-15',
+                species: [
+                    { name: 'Navicula cryptocephala', abundance: 145, indicator: 3.5 },
+                    { name: 'Nitzschia palea', abundance: 80, indicator: 4.0 },
+                    { name: 'Gomphonema parvulum', abundance: 45, indicator: 3.0 },
+                    { name: 'Amphora pediculus', abundance: 110, indicator: 2.0 },
+                    { name: 'Melosira varians', abundance: 20, indicator: 2.5 }
+                ]
+            },
+            {
+                id: 'site-2',
+                name: 'Lake Balaton - Tihany',
+                lat: 46.9144,
+                lng: 17.8825,
+                date: '2023-08-22',
+                species: [
+                    { name: 'Fragilaria crotonensis', abundance: 210, indicator: 1.8 },
+                    { name: 'Aulacoseira granulata', abundance: 85, indicator: 2.2 },
+                    { name: 'Stephanodiscus hantzschii', abundance: 15, indicator: 3.8 },
+                    { name: 'Asterionella formosa', abundance: 50, indicator: 1.5 }
+                ]
+            }
+        ];
+
+        // Central State Object
+        const state = {
+            sites: [...initialState],
+            currentView: 'dashboard',
+            mapInstance: null,
+            markers: []
+        };
+
+
+        // --- 2. BIODIVERSITY CALCULATOR MODULE ---
+        const EcoMath = {
+            /**
+             * Calculates standard ecological indices based on species abundance arrays.
+             * @param {Array} speciesArray - Array of objects: { name, abundance, indicator }
+             * @returns {Object} Calculated indices
+             */
+            calculateIndices: function(speciesArray) {
+                let totalAbundance = 0;
+                let shannon = 0;
+                let simpsonDominance = 0;
+                let weightedSum = 0;
+                let totalWeightAbundance = 0;
+                
+                // Filter out zero abundances
+                const validSpecies = speciesArray.filter(sp => sp.abundance > 0);
+                const S = validSpecies.length; // Species Richness
+
+                // Total Abundance
+                validSpecies.forEach(sp => totalAbundance += sp.abundance);
+
+                if (totalAbundance === 0 || S === 0) {
+                    return { shannon: 0, evenness: 0, dominance: 0, weightedAverage: 0, totalAbundance: 0, richness: 0 };
+                }
+
+                // Calculate Iterative Indices
+                validSpecies.forEach(sp => {
+                    let pi = sp.abundance / totalAbundance; // Relative abundance proportion
+                    
+                    // Shannon Diversity (H') = -sum(pi * ln(pi))
+                    shannon -= pi * Math.log(pi);
+                    
+                    // Simpson's Index of Dominance (lambda) = sum(pi^2)
+                    simpsonDominance += pi * pi;
+
+                    // Weighted Average (e.g., for saprobic/trophic index)
+                    if (sp.indicator !== undefined && sp.indicator !== null && !isNaN(sp.indicator)) {
+                        weightedSum += sp.indicator * sp.abundance;
+                        totalWeightAbundance += sp.abundance;
+                    }
+                });
+
+                // Pielou's Evenness (J') = H' / ln(S)
+                let evenness = S > 1 ? shannon / Math.log(S) : 0;
+                
+                // Weighted Average = sum(value * abundance) / sum(abundance_of_rated_taxa)
+                let weightedAverage = totalWeightAbundance > 0 ? (weightedSum / totalWeightAbundance) : 0;
+
+                return {
+                    shannon: shannon.toFixed(3),
+                    evenness: evenness.toFixed(3),
+                    dominance: simpsonDominance.toFixed(3),
+                    weightedAverage: weightedAverage.toFixed(2),
+                    totalAbundance,
+                    richness: S
+                };
+            }
+        };
+
+
+        // --- 3. CORE APPLICATION & UI CONTROLLER ---
+        const app = {
+            init: function() {
+                this.initMap();
+                this.navigateTo('dashboard');
+                
+                // Set default date in admin form to today
+                document.getElementById('form-date').valueAsDate = new Date();
+                
+                // Initialize admin form with one blank row
+                admin.addSpeciesRow();
+            },
+
+            navigateTo: function(viewId, siteId = null) {
+                // Hide all views
+                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+                
+                // Show target view
+                document.getElementById(`view-${viewId}`).classList.add('active');
+                state.currentView = viewId;
+
+                // View specific logic
+                if (viewId === 'dashboard') {
+                    this.renderDashboard();
+                    // Fix leaflet map sizing issue when unhidden
+                    setTimeout(() => {
+                        if (state.mapInstance) state.mapInstance.invalidateSize();
+                    }, 100);
+                } else if (viewId === 'site-detail' && siteId) {
+                    this.renderSiteDetail(siteId);
+                }
+            },
+
+            // Leaflet Map Initialization
+            initMap: function() {
+                // Initialize map centered on Hungary/Central Europe as default
+                state.mapInstance = L.map('map').setView([47.1625, 19.5033], 7);
+                
+                // Add OpenStreetMap tiles
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 18,
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(state.mapInstance);
+            },
+
+            updateMapMarkers: function() {
+                // Clear existing markers
+                state.markers.forEach(marker => state.mapInstance.removeLayer(marker));
+                state.markers = [];
+
+                let bounds = L.latLngBounds();
+
+                state.sites.forEach(site => {
+                    const marker = L.marker([site.lat, site.lng]).addTo(state.mapInstance);
+                    
+                    // Simple popup
+                    marker.bindPopup(`
+                        <div class="font-sans">
+                            <strong class="block text-sm">${site.name}</strong>
+                            <span class="text-xs text-gray-500">${site.date}</span><br>
+                            <button onclick="app.navigateTo('site-detail', '${site.id}')" class="mt-2 text-xs bg-eco-600 text-white px-2 py-1 rounded hover:bg-eco-700">View Analysis</button>
+                        </div>
+                    `);
+                    
+                    state.markers.push(marker);
+                    bounds.extend([site.lat, site.lng]);
+                });
+
+                // Auto-fit map to markers if there are any
+                if (state.sites.length > 0) {
+                    state.mapInstance.fitBounds(bounds, { padding: [30, 30] });
+                }
+            },
+
+            renderDashboard: function() {
+                const listContainer = document.getElementById('site-list');
+                document.getElementById('site-count').innerText = state.sites.length;
+                listContainer.innerHTML = '';
+
+                // Sort by date descending
+                const sortedSites = [...state.sites].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                if (sortedSites.length === 0) {
+                    listContainer.innerHTML = `<div class="p-4 text-center text-slate-500 text-sm italic">No sites recorded yet.</div>`;
+                }
+
+                sortedSites.forEach(site => {
+                    // Calculate quick summary for list
+                    const indices = EcoMath.calculateIndices(site.species);
+                    
+                    const card = document.createElement('div');
+                    card.className = "p-4 mb-2 bg-white border border-slate-100 rounded-lg hover:border-eco-300 hover:shadow-md cursor-pointer transition-all group";
+                    card.onclick = () => this.navigateTo('site-detail', site.id);
+                    
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-1">
+                            <h3 class="font-semibold text-slate-800 group-hover:text-eco-600 transition-colors">${site.name}</h3>
+                            <i class="ph ph-caret-right text-slate-400"></i>
+                        </div>
+                        <div class="text-xs text-slate-500 flex items-center mb-3">
+                            <i class="ph ph-calendar-blank mr-1"></i> ${site.date}
+                        </div>
+                        <div class="grid grid-cols-3 gap-2 text-xs">
+                            <div class="bg-slate-50 p-1.5 rounded text-center">
+                                <span class="block text-slate-400">Taxa</span>
+                                <span class="font-bold text-slate-700">${indices.richness}</span>
+                            </div>
+                            <div class="bg-slate-50 p-1.5 rounded text-center">
+                                <span class="block text-slate-400">Div (H')</span>
+                                <span class="font-bold text-slate-700">${indices.shannon}</span>
+                            </div>
+                            <div class="bg-eco-50 p-1.5 rounded text-center border border-eco-100">
+                                <span class="block text-eco-600">Status</span>
+                                <span class="font-bold text-eco-800">${indices.weightedAverage}</span>
+                            </div>
+                        </div>
+                    `;
+                    listContainer.appendChild(card);
+                });
+
+                this.updateMapMarkers();
+            },
+
+            renderSiteDetail: function(siteId) {
+                const site = state.sites.find(s => s.id === siteId);
+                if (!site) return;
+
+                // Set headers
+                document.getElementById('detail-title').innerText = site.name;
+                document.getElementById('detail-date').innerText = site.date;
+                document.getElementById('detail-coords').innerText = `${site.lat} N, ${site.lng} E`;
+
+                // Calculate Indices
+                const indices = EcoMath.calculateIndices(site.species);
+
+                // Update Index Cards
+                document.getElementById('index-shannon').innerText = indices.shannon;
+                document.getElementById('index-evenness').innerText = indices.evenness;
+                document.getElementById('index-dominance').innerText = indices.dominance;
+                document.getElementById('index-wa').innerText = indices.weightedAverage;
+                
+                document.getElementById('detail-total-abundance').innerText = indices.totalAbundance;
+                document.getElementById('detail-richness').innerText = indices.richness;
+
+                // Render Species Table
+                const tbody = document.getElementById('detail-species-list');
+                tbody.innerHTML = '';
+
+                // Sort species by abundance descending
+                const sortedSpecies = [...site.species].sort((a, b) => b.abundance - a.abundance);
+
+                sortedSpecies.forEach(sp => {
+                    const relativeAbundance = ((sp.abundance / indices.totalAbundance) * 100).toFixed(1);
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-50 transition-colors";
+                    tr.innerHTML = `
+                        <td class="px-6 py-3 whitespace-nowrap text-sm font-medium text-slate-800 italic">${sp.name}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600 text-right">${sp.abundance}</td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600 text-right">
+                            <div class="flex items-center justify-end">
+                                <span class="mr-2">${relativeAbundance}%</span>
+                                <div class="w-16 bg-slate-200 rounded-full h-1.5 mt-0.5">
+                                    <div class="bg-eco-500 h-1.5 rounded-full" style="width: ${relativeAbundance}%"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600 text-right">${sp.indicator || '-'}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        };
+
+
+        // --- 4. ADMIN CONTROLLER (Form Handling) ---
+        const admin = {
+            rowCount: 0,
+
+            addSpeciesRow: function() {
+                this.rowCount++;
+                const container = document.getElementById('species-input-container');
+                const rowId = `sp-row-${this.rowCount}`;
+                
+                const row = document.createElement('div');
+                row.id = rowId;
+                row.className = "grid grid-cols-12 gap-3 items-center bg-white p-2 rounded border border-slate-200 shadow-sm";
+                
+                row.innerHTML = `
+                    <div class="col-span-6">
+                        <input type="text" placeholder="Scientific Name" class="sp-name w-full text-sm rounded border-slate-300 border p-1.5 focus:ring-eco-500 focus:border-eco-500 italic" required>
+                    </div>
+                    <div class="col-span-3">
+                        <input type="number" min="0" placeholder="0" class="sp-count w-full text-sm rounded border-slate-300 border p-1.5 text-center focus:ring-eco-500 focus:border-eco-500" required>
+                    </div>
+                    <div class="col-span-2">
+                        <input type="number" step="0.1" placeholder="Val" class="sp-ind w-full text-sm rounded border-slate-300 border p-1.5 text-center focus:ring-eco-500 focus:border-eco-500">
+                    </div>
+                    <div class="col-span-1 text-center">
+                        <button type="button" onclick="admin.removeSpeciesRow('${rowId}')" class="text-slate-400 hover:text-red-500 transition-colors" title="Remove row">
+                            <i class="ph ph-trash text-lg"></i>
+                        </button>
+                    </div>
+                `;
+                container.appendChild(row);
+            },
+
+            removeSpeciesRow: function(rowId) {
+                const row = document.getElementById(rowId);
+                // Ensure at least one row remains
+                if (document.querySelectorAll('#species-input-container > div').length > 1) {
+                    row.remove();
+                } else {
+                    // Just clear the fields if it's the last row
+                    row.querySelector('.sp-name').value = '';
+                    row.querySelector('.sp-count').value = '';
+                    row.querySelector('.sp-ind').value = '';
+                }
+            },
+
+            handleFormSubmit: function(e) {
+                e.preventDefault();
+
+                // 1. Gather Metadata
+                const name = document.getElementById('form-name').value;
+                const date = document.getElementById('form-date').value;
+                const lat = parseFloat(document.getElementById('form-lat').value);
+                const lng = parseFloat(document.getElementById('form-lng').value);
+
+                // 2. Gather Species Data
+                const speciesData = [];
+                const rows = document.querySelectorAll('#species-input-container > div');
+                
+                rows.forEach(row => {
+                    const spName = row.querySelector('.sp-name').value.trim();
+                    const spCount = parseInt(row.querySelector('.sp-count').value);
+                    const spIndRaw = row.querySelector('.sp-ind').value;
+                    const spInd = spIndRaw ? parseFloat(spIndRaw) : null;
+
+                    if (spName && !isNaN(spCount) && spCount > 0) {
+                        speciesData.push({
+                            name: spName,
+                            abundance: spCount,
+                            indicator: spInd
+                        });
+                    }
+                });
+
+                if (speciesData.length === 0) {
+                    alert("Please enter at least one species with an abundance greater than 0.");
+                    return;
+                }
+
+                // 3. Create Site Object
+                const newSite = {
+                    id: 'site-' + Date.now(),
+                    name: name,
+                    lat: lat,
+                    lng: lng,
+                    date: date,
+                    species: speciesData
+                };
+
+                // 4. Update State
+                state.sites.push(newSite);
+
+                // 5. Reset Form and Navigate
+                document.getElementById('add-site-form').reset();
+                document.getElementById('species-input-container').innerHTML = '';
+                this.rowCount = 0;
+                this.addSpeciesRow(); // add one blank row back
+
+                // Visual feedback (simulating saving)
+                const btn = e.target.querySelector('button[type="submit"]');
+                const origText = btn.innerText;
+                btn.innerText = "Saving...";
+                btn.classList.add('bg-eco-800');
+                
+                setTimeout(() => {
+                    btn.innerText = origText;
+                    btn.classList.remove('bg-eco-800');
+                    app.navigateTo('dashboard');
+                }, 400);
+            }
+        };
+
+        // --- 5. INITIALIZATION BINDINGS ---
+        document.addEventListener('DOMContentLoaded', () => {
+            app.init();
+            
+            // Bind form submit
+            document.getElementById('add-site-form').addEventListener('submit', admin.handleFormSubmit);
+        });
+
+    </script>
+</body>
+</html>
